@@ -1,0 +1,16 @@
+{
+    "slaves": [
+        "host1:port1",
+        "host2:port2"
+    ],
+    "master": "",
+    "reducedataport": 8080,
+    "input": "/home/ubuntu/input",
+    "delimeter": "\n",
+    "username": "ubuntu",
+    "pemfile": "/home/ubuntu/yftest.pem",
+    "mapdir": "/home/ubuntu/mapdir",
+    "reducedir": "/home/ubunut/reducedir",
+    "nummap": 10,
+    "numreduce": 2
+}
