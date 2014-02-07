@@ -14,6 +14,7 @@ import (
 	"log"
 	"math/rand"
 	"net"
+	"net/http"
 	"net/rpc"
 	"os"
 	"path/filepath"
@@ -38,6 +39,8 @@ type Master struct {
 	ReduceDir      string
 	Username       string
 	PEMFile        string
+	fschan         chan Message
+	IsRunning      bool
 }
 
 type Args struct{}
@@ -61,6 +64,8 @@ func NewMaster(config configparser.Config) *Master {
 		ReduceDir:      config.ReduceDir,
 		Username:       config.Username,
 		PEMFile:        config.PEMFile,
+		fschan:         make(chan Message),
+		IsRunning:      false,
 	}
 	return &master
 }
@@ -230,7 +235,7 @@ func handleConnection(conn net.Conn, fschan chan Message) {
 
 	fschan <- Message{data, 1}
 }
-func (m *Master) FileServer(fschan chan Message) {
+func (m *Master) FileServer() {
 	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", m.ReduceDataPort))
 	if err != nil {
 		// handle error
@@ -241,18 +246,17 @@ func (m *Master) FileServer(fschan chan Message) {
 			// handle error
 			continue
 		}
-		go handleConnection(conn, fschan)
+		go handleConnection(conn, m.fschan)
 	}
 }
 
 func (m *Master) Controller() {
+	m.IsRunning = true
+
 	os.RemoveAll(m.MapDir)
 	os.RemoveAll(m.ReduceDir)
 	os.Mkdir(m.MapDir, 0755)
 	os.Mkdir(m.ReduceDir, 0755)
-
-	fschan := make(chan Message)
-	go m.FileServer(fschan)
 
 	m.splitInput()
 
@@ -261,7 +265,7 @@ func (m *Master) Controller() {
 
 	for {
 		select {
-		case fsmsg := <-fschan:
+		case fsmsg := <-m.fschan:
 			if handleFS(fsmsg, m) { // We have got 2 files in reduce
 				reduceFilepath := m.concatReduceFiles() //Also removes the files once its done
 				slave := m.IdleSlaves[rand.Intn(len(m.IdleSlaves))]
@@ -276,8 +280,9 @@ func (m *Master) Controller() {
 				}()
 			} else {
 				if len(m.BusySlaves) == 0 {
-					close(fschan)
-					task.OutputWriter(m.decodeReduce(filepath.Join(m.ReduceDir, "1")))
+					//close(fschan)
+					m.IsRunning = false
+					task.OutputWriter(m.decodeReduce(outfPath), outfPath)
 					return
 				}
 			}
@@ -323,9 +328,62 @@ func deleteFromArrayS(arr []string, item string) []string {
 	}
 	return append(arr[:index], arr[index+1:]...)
 }
+
+func exists(path string) (bool, error) {
+	_, err := os.Stat(path)
+	if err == nil {
+		return true, nil
+	}
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	return false, err
+}
+
+func HandleHome(w http.ResponseWriter, r *http.Request) {
+	http.ServeFile(w, r, "./static/index.html")
+}
+
+func HandleOutput(w http.ResponseWriter, r *http.Request) {
+	if master.IsRunning {
+		fmt.Fprintf(w, "JOBNOTFINISHED")
+		return
+	}
+	http.ServeFile(w, r, outfPath)
+}
+
+func HandleStart(w http.ResponseWriter, r *http.Request) {
+	if master.IsRunning {
+		fmt.Fprintf(w, "Previous Job not finished")
+		return
+	}
+	path := r.FormValue("file")
+	isexists, _ := exists(path)
+	if isexists == false {
+		fmt.Fprintf(w, "File does not exist")
+	} else {
+		master.InputF = path
+		go master.Controller()
+		fmt.Fprintf(w, "Job Started")
+	}
+
+}
+
+var config configparser.Config
+var outfPath string
+var master *Master
+
 func Run(configFile string) {
 	rand.Seed(time.Now().Unix())
-	config := configparser.ParseFile(configFile)
-	master := NewMaster(config)
-	master.Controller()
+	config = configparser.ParseFile(configFile)
+	webport := config.WebPort
+	http.HandleFunc("/", HandleHome)
+	http.HandleFunc("/start", HandleStart)
+	http.HandleFunc("/output", HandleOutput)
+	http.Handle("/static", http.FileServer(http.Dir("./static/")))
+
+	master = NewMaster(config)
+	go master.FileServer()
+	outfPath = filepath.Join(master.ReduceDir, "1")
+	http.ListenAndServe(fmt.Sprintf(":%d", webport), nil)
 }

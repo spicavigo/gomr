@@ -3,6 +3,8 @@ package task
 import "fmt"
 import "strings"
 import "io/ioutil"
+import "os"
+import "io"
 
 type MapCollector struct {
 	Key   string
@@ -36,8 +38,15 @@ func InputParser(path string) []string {
 	return lines
 }
 
-func OutputWriter(data []ReduceCollector) {
-	fmt.Println(data)
+func OutputWriter(data []ReduceCollector, filename string) {
+	f, err := os.Create(filename)
+	if err != nil {
+		fmt.Println(err)
+	}
+	for _, row := range data {
+		io.WriteString(f, fmt.Sprintf("%s, %d\n", row.Key, row.Value))
+	}
+	f.Close()
 }
 
 func sum(a []int) (s int) {
