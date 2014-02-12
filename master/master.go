@@ -9,6 +9,7 @@ import (
 	"github.com/spicavigo/gomr/configparser"
 	"github.com/spicavigo/gomr/task"
 	"github.com/spicavigo/gomr/util"
+	"html/template"
 	"io"
 	"io/ioutil"
 	"log"
@@ -55,7 +56,7 @@ func getPath(base string) string {
 func NewMaster(config configparser.Config) *Master {
 	master := Master{
 		Slaves:         config.Slaves,
-		IdleSlaves:     config.Slaves,
+		IdleSlaves:     make([]string, len(config.Slaves)),
 		BusySlaves:     make([]string, len(config.Slaves)),
 		ReduceDataPort: config.ReduceDataPort,
 		InputF:         config.Input,
@@ -67,6 +68,7 @@ func NewMaster(config configparser.Config) *Master {
 		fschan:         make(chan Message),
 		IsRunning:      false,
 	}
+	copy(master.IdleSlaves, master.Slaves)
 	return &master
 }
 
@@ -168,7 +170,6 @@ func (m *Master) sendInputAndStartMaps() {
 			os.Remove(srcPath)
 		}(slave, srcpath, destpath)
 	}
-	m.IdleSlaves = nil
 }
 
 func (m *Master) startReduce(slave string) {
@@ -261,6 +262,9 @@ func (m *Master) Controller() {
 	m.splitInput()
 
 	m.sendInputAndStartMaps()
+
+	m.BusySlaves = make([]string, len(m.Slaves))
+	m.IdleSlaves = nil
 	copy(m.BusySlaves, m.Slaves)
 
 	for {
@@ -341,7 +345,7 @@ func exists(path string) (bool, error) {
 }
 
 func HandleHome(w http.ResponseWriter, r *http.Request) {
-	http.ServeFile(w, r, "./static/index.html")
+	display(w, "index.html", "")
 }
 
 func HandleOutput(w http.ResponseWriter, r *http.Request) {
@@ -357,7 +361,7 @@ func HandleStart(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "Previous Job not finished")
 		return
 	}
-	path := r.FormValue("file")
+	path := filepath.Join(config.InputDir, r.FormValue("file"))
 	isexists, _ := exists(path)
 	if isexists == false {
 		fmt.Fprintf(w, "File does not exist")
@@ -369,9 +373,61 @@ func HandleStart(w http.ResponseWriter, r *http.Request) {
 
 }
 
+func HandleUpload(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case "GET":
+		http.Redirect(w, r, "/", 302)
+
+	//POST takes the uploaded file(s) and saves it to disk.
+	case "POST":
+		//get the multipart reader for the request.
+		reader, err := r.MultipartReader()
+
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		//copy each part to destination.
+		var fname string
+		for {
+			part, err := reader.NextPart()
+			if err == io.EOF {
+				break
+			}
+
+			//if part.FileName() is empty, skip this iteration.
+			if part.FileName() == "" {
+				continue
+			}
+			dst, err := os.Create(filepath.Join(config.InputDir, part.FileName()))
+			fname = part.FileName()
+			defer dst.Close()
+
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+
+			if _, err := io.Copy(dst, part); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+		}
+		display(w, "index.html", fname)
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
+}
+
+func display(w http.ResponseWriter, tmpl string, data interface{}) {
+	templates.ExecuteTemplate(w, tmpl, data)
+}
+
 var config configparser.Config
 var outfPath string
 var master *Master
+var templates = template.Must(template.ParseFiles("./static/index.html"))
 
 func Run(configFile string) {
 	rand.Seed(time.Now().Unix())
@@ -380,6 +436,7 @@ func Run(configFile string) {
 	http.HandleFunc("/", HandleHome)
 	http.HandleFunc("/start", HandleStart)
 	http.HandleFunc("/output", HandleOutput)
+	http.HandleFunc("/upload", HandleUpload)
 	http.Handle("/static", http.FileServer(http.Dir("./static/")))
 
 	master = NewMaster(config)

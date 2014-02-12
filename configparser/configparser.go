@@ -10,6 +10,7 @@ type Config struct {
 	Master         string
 	ReduceDataPort int
 	Input          string
+	InputDir       string
 	Delimeter      string
 	Username       string
 	PEMFile        string
