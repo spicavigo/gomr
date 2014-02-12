@@ -14,5 +14,6 @@
     "reducedir": "/home/ubuntu/reducedir",
     "nummap": 10,
     "numreduce": 2,
-    "webport": 80
+    "webport": 80,
+    "htmltemplate": "/home/ubuntu/go/src/github.com/spicavigo/static/index.html"
 }

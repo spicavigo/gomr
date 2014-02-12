@@ -19,6 +19,7 @@ type Config struct {
 	NumMap         int
 	NumReduce      int
 	WebPort        int
+	HTMLTemplate   string
 }
 
 func ParseFile(path string) Config {

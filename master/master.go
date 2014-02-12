@@ -439,7 +439,7 @@ func Run(configFile string) {
 	http.HandleFunc("/upload", HandleUpload)
 	http.Handle("/static", http.FileServer(http.Dir("./static/")))
 
-	templates = template.Must(template.ParseFiles("./static/index.html"))
+	templates = template.Must(template.ParseFiles(config.HTMLTemplate))
 
 	master = NewMaster(config)
 	go master.FileServer()
