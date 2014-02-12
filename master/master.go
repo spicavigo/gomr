@@ -427,7 +427,7 @@ func display(w http.ResponseWriter, tmpl string, data interface{}) {
 var config configparser.Config
 var outfPath string
 var master *Master
-var templates = template.Must(template.ParseFiles("./static/index.html"))
+var templates *template.Template
 
 func Run(configFile string) {
 	rand.Seed(time.Now().Unix())
@@ -438,6 +438,8 @@ func Run(configFile string) {
 	http.HandleFunc("/output", HandleOutput)
 	http.HandleFunc("/upload", HandleUpload)
 	http.Handle("/static", http.FileServer(http.Dir("./static/")))
+
+	templates = template.Must(template.ParseFiles("./static/index.html"))
 
 	master = NewMaster(config)
 	go master.FileServer()
